@@ -1,0 +1,534 @@
+#include <Servo.h>
+int led1, led2, led3, led4;
+int button1, button2, button3;
+int pMeter;
+Servo servo;
+int servoPin;
+
+int pattern[6];
+boolean madePattern;
+long currTime, future;
+int pPos;
+boolean pPosChanged;
+
+boolean bPressed;
+int uPattern[6];
+int uPos;
+
+double stage;
+long startTime;
+
+int currState;
+int minBright, maxBright;
+boolean ccw;
+int timesTurned;
+
+int servoPos;
+int timesTilted;
+boolean tiltLeft;
+long timeInMid;
+
+void setup()
+{
+  Serial.begin(9600);
+
+  led1 = 11;
+  led2 = 3;
+  led3 = 10;
+  led4 = 6;
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT);
+  pinMode(led3, OUTPUT);
+  pinMode(led4, OUTPUT);
+
+  button1 = 13;
+  button2 = 12;
+  button3 = A2;
+  pinMode(button1, INPUT);
+  pinMode(button2, INPUT);
+  pinMode(button3, INPUT);
+
+  pMeter = A1;
+  pinMode(pMeter, INPUT);
+
+  servoPin = 5;
+  servo.attach(servoPin);
+
+  //random number from 1 to 3 inclusive
+  randomSeed(analogRead(A0)); //must be pin unconnected
+  int ran = random(1, 4);
+  //Serial.println(ran);
+
+  madePattern = false;
+  currTime = millis();
+  future = 0;
+  pPos = 0;
+  pPosChanged = false;
+
+  bPressed = false;
+  uPos = 0;
+
+  stage = 1;
+  startTime = 0;
+
+  currState = analogRead(pMeter); //should be a low number
+  ccw = true;
+  minBright = 0;
+  maxBright = 255;
+  timesTurned = 0;
+
+  servoPos = 60;
+  servo.write(servoPos);
+  timesTilted = 0;
+  tiltLeft = true;
+  timeInMid = 0;
+}
+
+void loop()
+{
+  //simonSays();
+  //checkPMeter();
+  //stirring();
+  playGames();
+  //testServo();
+  //balanceTemp();
+  //checkButtons();
+  //allOn();
+}
+
+// ----------- methods for testing -----------
+
+void allOn()
+{
+  digitalWrite(led1, HIGH);
+  digitalWrite(led2, HIGH);
+  digitalWrite(led3, HIGH);
+  digitalWrite(led4, HIGH);
+}
+
+void checkButtons()
+{
+  int b1State = digitalRead(button1);
+  int b2State = digitalRead(button2);
+  int b3State = digitalRead(button3);
+
+  Serial.print("b1State = ");
+  Serial.print(b1State);
+  Serial.print(", b2State = ");
+  Serial.print(b2State);
+  Serial.print(", b3State = ");
+  Serial.println(b3State);
+}
+
+void checkPMeter()
+{
+  int pMeterState = analogRead(pMeter);
+  Serial.print("pMeterState = ");
+  Serial.println(pMeterState);
+}
+
+void testServo()
+{
+  servo.write(90);
+}
+
+// ----------- main methods used -----------
+
+void playGames()
+{
+  if (stage == 1)
+  {
+    simonSays();
+  }
+  else if(stage == 1.5 || stage == 2.5 || stage == 3.5)
+  {
+    if(millis() < future)
+      winningPattern();
+    else
+    {
+      someOff(0);
+      stage+=.5;
+      
+      if(stage == 3)
+        startTime = millis();
+    }
+  }
+  else if (stage == 2)
+  {
+    stirring();
+  }
+  else if(stage == 3)
+  {
+    balanceTemp();
+  }
+}
+
+void showPattern()
+{
+  if (!madePattern)
+  {
+    generatePattern();
+    madePattern = true;
+  }
+
+  currTime = millis();
+
+  if (currTime >= future && pPosChanged) //pause for 100 ms
+  {
+    someOff(0);
+    future += 100;
+    pPosChanged = false;
+  }
+  else if (currTime >= future) //turn on for 1 s
+  {
+    if (pPos > 5)
+    {
+      someOff(0);
+    }
+    else if (pattern[pPos] == 1)
+    {
+      digitalWrite(led1, HIGH);
+      someOff(1);
+    }
+    else if (pattern[pPos] == 2)
+    {
+      digitalWrite(led2, HIGH);
+      someOff(2);
+    }
+    else
+    {
+      digitalWrite(led3, HIGH);
+      someOff(3);
+    }
+
+    pPos++;
+    future += 1000;
+    pPosChanged = true;
+  }
+  //Serial.println(pPos);
+}
+
+void userPattern()
+{
+  int b1State = digitalRead(button1);
+  int b2State = digitalRead(button2);
+  int b3State = digitalRead(button3);
+  currTime = millis();
+
+  if (!bPressed)
+  {
+    if (b1State == 1)
+    {
+      //Serial.println("clicked 1");
+      uPattern[uPos] = 1;
+      digitalWrite(led1, HIGH);
+      someOff(1);
+
+      future = currTime + 500;
+      bPressed = true;
+      uPos++;
+    }
+    else if (b2State == 1)
+    {
+      //Serial.println("clicked 2");
+      uPattern[uPos] = 2;
+      digitalWrite(led2, HIGH);
+      someOff(2);
+
+      future = currTime + 500;
+      bPressed = true;
+      uPos++;
+    }
+    else if (b3State == 1)
+    {
+      //Serial.println("clicked 3");
+      uPattern[uPos] = 3;
+      digitalWrite(led3, HIGH);
+      someOff(3);
+
+      future = currTime + 500;
+      bPressed = true;
+      uPos++;
+    }
+  }
+
+  if (b1State == 0 && b2State == 0 && b3State == 0)
+  {
+    bPressed = false;
+  }
+
+  //turns off leds after 1 s
+  if (currTime >= future)
+  {
+    someOff(0);
+    if (uPos == 6)
+      uPos++;
+  }
+}
+
+void simonSays()
+{
+  //Serial.println(uPos);
+  if (pPos < 6)
+  {
+    showPattern();
+  }
+  else if (uPos <= 6)
+  {
+    userPattern();
+  }
+  else
+  {
+    boolean same = comparePatterns();
+    printPattern();
+    printUPattern();
+    
+    if(same)
+    {
+      stage+=.5;
+      startTime = currTime;
+      future = currTime + 5000;
+    }
+    else
+    {
+      //resetting simon says
+      madePattern = false;
+      pPos = 0;
+      uPos = 0;
+      future = millis() + 100;
+      pPosChanged = false;
+    }
+    Serial.println(same);
+  }
+}
+
+void stirring()
+{
+  currState = analogRead(pMeter);
+  Serial.println(currState);
+
+  if(ccw)
+  {
+    digitalWrite(led1, LOW);
+    digitalWrite(led3, HIGH);
+  }
+  else
+  {
+    digitalWrite(led1, HIGH);
+    digitalWrite(led3, LOW);
+  }
+
+  if(timesTurned == 0) //ccw
+  {
+    if(currState >= 950)
+    {
+      ccw = false;
+      timesTurned = 1;
+      changeMinMax();
+    }
+  }
+  else if(timesTurned == 1) //cw
+  {
+    if(currState <= 50)
+    {
+      ccw = true;
+      timesTurned = 2;
+      changeMinMax();
+    }
+  }
+  else //timesTurned == 2, ccw
+  {
+    if(currState >= 950)
+    {
+      stage+=.5;
+      startTime = millis();
+      future = startTime + 5000;
+    }
+  }
+    
+  int scaledPMeter;
+
+  if(ccw)
+    scaledPMeter = map(currState, 0, 1023, minBright, maxBright);
+  else
+    scaledPMeter = map(currState, 1023, 0, minBright, maxBright);
+
+  analogWrite(led2, scaledPMeter);
+}
+
+void balanceTemp()
+{
+  currTime = millis();
+  int b1State = digitalRead(button1);
+  int b3State = digitalRead(button3);
+
+  //servo acting on its own
+  if(currTime >= future)
+  {
+    future = currTime + 50;
+    
+    if(tiltLeft && servoPos < 180)
+      servoPos++;
+    else if(servoPos > 0)
+      servoPos--;
+
+  }
+  
+  //user input
+  if(b3State == 1 && !bPressed && servoPos <= 140)
+  {
+    servoPos+=40;
+    bPressed = true;
+    tiltLeft = true;
+  }
+  else if(b1State == 1 && !bPressed && servoPos >= 40)
+  {
+    servoPos-=40;
+    bPressed = true;
+    tiltLeft = false;
+  }
+  else if(b1State == 0 && b3State == 0)
+    bPressed = false;
+
+  servo.write(servoPos);
+
+  //led inside the oven changes brightness depending on servoPos
+  //left (180) = dim, right (0) = bright
+  
+  int scaledPos = map(servoPos, 180, 0, 0, 255);
+  
+  if(servoPos > 178)
+    digitalWrite(led4, LOW);
+  else if(servoPos < 5)
+    digitalWrite(led4, HIGH);
+  else
+    analogWrite(led4, scaledPos);
+  
+  //measuring how "long" the player spent in the green zone
+  if(servoPos > 80 && servoPos < 100)
+  {
+    timeInMid++;
+  }
+  Serial.println(timeInMid);
+
+  //3 LEDs flash to indicate progress
+  if(timeInMid < 500)
+    flashPattern(led3);
+  else if(timeInMid < 1000)
+  {
+    digitalWrite(led3, HIGH);
+    flashPattern(led2);
+  }
+  else if(timeInMid < 1500)
+  {
+    digitalWrite(led2, HIGH);
+    flashPattern(led1);
+  }
+  else
+  {
+    digitalWrite(led1, HIGH);
+    stage+=.5;
+    startTime = currTime;
+    future = startTime + 5000;
+  }
+}
+
+// ----------- helper methods -----------
+
+void generatePattern()
+{
+  for (int i = 0; i < 6; i++)
+  {
+    int rand = random(1, 4);
+    pattern[i] = rand;
+  }
+}
+
+void someOff(int ledNum)
+{
+  if (ledNum != 1)
+    digitalWrite(led1, LOW);
+  if (ledNum != 2)
+    digitalWrite(led2, LOW);
+  if (ledNum != 3)
+    digitalWrite(led3, LOW);
+}
+
+boolean comparePatterns()
+{
+  for (int i = 0; i < 6; i++)
+  {
+    if (pattern[i] != uPattern[i])
+      return false;
+  }
+  return true;
+}
+
+void printPattern()
+{
+  Serial.print("pattern = ");
+  for (int i = 0; i < 6; i++)
+  {
+    Serial.print(pattern[i]);
+    Serial.print(", ");
+  }
+  Serial.println("");
+}
+
+void printUPattern()
+{
+  Serial.print("uPattern = ");
+  for (int i = 0; i < 6; i++)
+  {
+    Serial.print(uPattern[i]);
+    Serial.print(", ");
+  }
+  Serial.println("");
+}
+
+void changeMinMax()
+{
+  if(timesTurned == 0)
+  {
+    minBright = 0;
+    maxBright = 50;
+  }
+  else if(timesTurned == 1)
+  {
+    minBright = 50;
+    maxBright = 100;
+  }
+  else
+  {
+    minBright = 100;
+    maxBright = 255;
+  }
+}
+
+void winningPattern()
+{
+  currTime = millis(); //set a startTime
+  long secBtwn = (currTime - startTime)/1000;
+
+  if(secBtwn%2 == 1) //odd
+  {
+    someOff(0);
+  }
+  else //even
+  {
+    digitalWrite(led1, HIGH);
+    digitalWrite(led2, HIGH);
+    digitalWrite(led3, HIGH);
+  }
+}
+
+void flashPattern(int led)
+{
+  currTime = millis();
+  long secBtwn = (currTime - startTime)/500;
+
+  if(secBtwn%2 == 1)
+    digitalWrite(led, LOW);
+  else
+    digitalWrite(led, HIGH);
+}
